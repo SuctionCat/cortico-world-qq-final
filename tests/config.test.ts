@@ -46,4 +46,8 @@ test('normalizeConfig vision 缺省 model 存在', () => {
   const out = normalizeConfig({} as never);
   assert.equal(typeof out.vision.model, 'string');
   assert.ok(out.vision.maxConcurrent >= 1);
+  assert.equal(out.vision.videoEnabled, false);
+  assert.equal(out.vision.videoDir, 'videos');
+  assert.equal(out.vision.videoFrameIntervalSec, 1);
+  assert.equal(out.vision.videoMaxFrames, 12);
 });

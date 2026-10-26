@@ -267,3 +267,31 @@ test('加群申请事件不得把申请留言拼进 internal 提示词', async (
   assert.ok(!textLine.includes('留言'), '事件文本不得出现留言原文');
   assert.ok(textLine.includes('qq_admin（action=join_list）'), '应引导模型用管理工具查询详情');
 });
+
+test('引用图片必须进入当前事件附件或辅助视觉路径', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../src/world.ts', import.meta.url), 'utf8');
+  const start = src.indexOf('private async resolveQuoted');
+  assert.ok(start > 0, '必须存在引用消息处理器');
+  const end = src.indexOf('\n  private async handleNotice', start);
+  assert.ok(end > start, '无法截取引用消息处理器');
+  const body = src.slice(start, end);
+  assert.ok(body.includes('blobs: BlobInput[]'), '引用消息应有独立附件收集列表');
+  assert.ok(body.includes('qq-quoted-image'), '引用图片附件应使用固定资料名称');
+  assert.ok(body.includes('this.vision.register'), '主模型无法看图时应尝试辅助视觉');
+  assert.ok(body.includes('^https?:\\/\\/'), '引用图片 URL 必须限制为 http(s)');
+});
+
+test('qq_admin 的授权辅助逻辑必须与合并工具一起存在', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../src/world.ts', import.meta.url), 'utf8');
+  const start = src.indexOf('const adminEnabled');
+  const end = src.indexOf('const adminTool: ToolDef', start);
+  assert.ok(start > 0 && end > start, 'qq_admin 前必须定义授权辅助逻辑');
+  const body = src.slice(start, end);
+  for (const name of ['adminAuthorize', 'protectTarget', 'resolveUser', 'const api']) {
+    assert.ok(body.includes(name), `缺少 ${name}`);
+  }
+  assert.ok(body.includes('activeAdminConversation'), '管理员鉴权不能把 ToolCallContext.role 当作 QQ 会话地址');
+  assert.ok(src.includes("auth.callerRole === 'self' && !this.config.admin.allowSelfKick"), '踢人自主权限必须单独保护');
+});

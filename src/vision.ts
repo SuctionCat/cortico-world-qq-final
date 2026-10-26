@@ -121,6 +121,15 @@ export class Vision {
     return desc;
   }
 
+  /** 供视频抽帧等本地生成的图片走同一套辅助视觉模型；不接收外部 URL。 */
+  async describeImageBytes(bytes: Uint8Array, mime = 'image/png'): Promise<string | null> {
+    if (!this.cfg.enabled || !bytes.length) return null;
+    const t0 = Date.now();
+    const desc = await this.describe(bytes, mime);
+    this.account(createHash('sha256').update(bytes).digest('hex'), bytes.length, !!desc, Date.now() - t0);
+    return desc;
+  }
+
   private loadSeen(): void {
     if (!this.seenFile || !existsSync(this.seenFile)) return;
     try {
@@ -178,7 +187,7 @@ export class Vision {
     }
   }
 
-  private async describe(bytes: Uint8Array): Promise<string | null> {
+  private async describe(bytes: Uint8Array, mime = 'image/jpeg'): Promise<string | null> {
     // 模型来源一律走注入的解析器（由 QQWorld 经框架 ctx.secret() 解析密钥）。
     // 曾在这里直查 process.env，认证评审（#104）要求收敛到框架密钥读取器。
     const injected = this.resolveModel?.();
@@ -212,7 +221,7 @@ export class Vision {
               role: 'user',
               content: [
                 { type: 'text', text: '用一句话简要描述这张图片里的关键内容，用于群聊上下文。' },
-                { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64}` } },
+                { type: 'image_url', image_url: { url: `data:${mime};base64,${base64}` } },
               ],
             },
           ],

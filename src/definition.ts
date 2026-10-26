@@ -18,6 +18,10 @@ const TOOL_SUMMARIES: Record<string, DescribeText> = {
     zh: '主动重看一张刚收到的 QQ 图片,取回它的文字描述。',
     en: 'Take another look at a received QQ picture and get its description.',
   },
+  qq_image: {
+    zh: '独立图片库:保存最近图片、查看文件名、修改标注或删除。',
+    en: 'Separate image library: save recent pictures, list files, edit annotations, or delete.',
+  },
   qq_sticker_stats: {
     zh: '查看已收藏表情包的统计与真实文件名,发图前先取文件名。',
     en: 'List collected stickers with their real filenames, needed before replying with one.',

@@ -54,8 +54,14 @@ Cortico 的 **QQ（OneBot v11 / NapCat）** World 扩展。以 `fat-fish` 仓库
 | `privateAggregationWindow` | `0` | 私聊连续消息聚合窗口(ms)，0=不聚合 |
 | `maxMessageBytes` | `1500` | 长文本强制分片字节数 |
 | `deliverImageAttachments` | `true` | 图片作为模型附件（需模型支持图像）。这是默认的看图路径 |
+| `imageDir` | `images` | 独立图片库目录（相对扩展或绝对路径），与 `emojiDir` 分开；保存的图片用 `[图片:文件名]` 发送 |
 | `vision.enabled` | `false` | 辅助视觉：用另一个 VLM 描述图片。主模型本身能看图时不必开（两条路会重复花钱） |
 | `vision.endpoint` / `vision.apiKeySecret` / `vision.model` | `""` | 开启辅助视觉后**三项必填**。密钥只写名字（如 `DEEPSEEK_API_KEY`），值放在部署密钥库（.env）里，由框架 `secret()` 读取 |
+| `vision.videoEnabled` | `false` | 视频理解开关；开启后把收到的视频保存到独立 `videoDir`，用 ASR 配置里的 ffmpeg 抽帧拼图 |
+| `vision.videoDir` | `videos` | 视频文件目录（相对扩展或绝对路径）；文件名由内容哈希生成，不保存来源 URL |
+| `vision.videoFrameIntervalSec` | `1` | 视频抽帧间隔，单位秒，默认一秒一帧 |
+| `vision.videoMaxFrames` | `12` | 每个视频最多抽帧数，抽帧后拼成一张 PNG 附件 |
+| `vision.videoMaxBytes` | `67108864` | 单个视频下载上限，默认 64 MiB |
 | `qzone.enabled` | `false` | 启用 QQ 空间动态（说说）功能（需重启生效） |
 | `qzone.tickSec` / `qzone.chancePerTick` | `900` / `0.15` | 后台自动冒泡间隔(秒)与每次触发概率 |
 | `qzone.dailyQuota` | `5` | 每日自动发表上限（0=不限） |
@@ -280,6 +286,7 @@ interface VoiceProvider {
   - 当前用户好感度会以"关系备忘"形式自动注入对话上下文（受 `affinity.enabled` 控制），bot 据此调节语气分寸。
 
 - **群管理员能力（admin）**：当 bot 账号是群管理员 / 群主时，可在群里执行后台管理操作。功能总开关 `admin.enabled`（默认关，控制台热开启）。开关仅控制是否真正执行，`qq_admin（action=recall/at_all/notice/join_*/title/ban/ban_all/kick）` 工具始终可用（关闭时返回「功能未开启」）。所有操作需要 bot 具备对应管理员权限，否则 QQ 会拒绝（返回具体错误）。
+  - 鉴权按当前 QQ 会话最近两分钟内的发言者判断：白名单、群管理员/群主权限和 AI 自主操作分别受 `allowlist`、`allowGroupAdmins`/`ownerOnly`、`allowSelf` 控制；AI 自主踢人还必须开启 `allowSelfKick`，群主和管理员目标继续受保护设置约束。
   - `qq_admin（action=recall）`：撤回一条群消息（`messageId` 为要撤回消息的 `message_id`，仅能撤回近 2 分钟内或自己发的消息）。
   - `qq_admin（action=at_all）`：在群里 **@全体成员** 并附正文（`text`）。需要群开启允许 @全体成员。
   - `qq_admin（action=notice）`：发布**群通知 / 群公告**（`content`）。底层 OneBot action 由 `admin.noticeAction` 配置（默认 `send_group_notice`；若你的 NapCat 版本用 `_send_group_notice`，在控制台改 `worlds.qqbot.admin.noticeAction` 即可）。
@@ -311,10 +318,15 @@ interface VoiceProvider {
 
 ## 表情包与视觉
 
+- `qq_image`：独立图片资料库。`save` 只能从最近收到的 QQ 图片中选择一张保存；`list` 查看真实文件名和标注；`tag` 修改名称/主题标签/使用场景；`delete` 删除图片。图片库使用独立的 `imageDir`（默认 `<扩展>/images`），不会写入表情包的 `emojiDir`。保存时可选用视觉模型自动生成短标签，所有标签都会清洗为单行资料文本，不会推送成内部事件。
+- 图片库发送：先用 `qq_image(action=list)` 获取真实文件名，再在 `qq_send` 正文写 `[图片:文件名]`。文件名会重新经过目录边界和符号链接检查，不接受任意 URL 或目录外路径。
+
 - `qq_sticker_stats`：查看已自动收藏的表情包统计——总数（及其中已同步到 QQ 收藏表情的张数）、按情感分布、最近若干条（含情感/用处/标签/文件名）。想给 QQ 回复发表情包图片时，**先调本工具拿到真实文件名**（返回里形如 `[表情包:xxx.jpg]`），再把整段 `[表情包:文件名]` 写进回复文本即可自动发出；不要编造不存在的文件名。
 - `qq_sticker_to_favorites`：把已收藏但还没进 QQ 收藏表情的表情包（开启开关前攒下的历史表情）批量补推到登录账号的 QQ「收藏表情」（custom face），让你能在 QQ 客户端里直接看到/使用。需先在设置开启「同步到 QQ 收藏表情」，且协议端支持 `add_custom_face`（如 SnowLuma）。
 - `qq_sticker_tag`：修改某张已收藏表情包的标注——情感 `emotion` / 用处 `usage` / 短标签 `tag` / 显示名 `label`（只传想改的字段），改完立即持久化保存。自动标注不准（如情感是「未知」）或想按自己的习惯整理表情库时用它；先用 `qq_sticker_stats` 拿到真实文件名再调用。
 - `qq_view_image`：主动重新看一张刚收到的 QQ 图片（当被动视觉没拿到描述、或你想细看时）。不传 `url` 则看最近收到的一张，也可传 `url` 指定任意图片链接，返回图片的文字描述。
+- 引用图片：引用 QQ 消息时，引用里的图片会随当前事件作为视觉附件传递；主模型不支持图片时尝试辅助视觉。图片 URL 只接受 `http(s)`，不会把来源地址写进事件。
+- 视频理解：在「视觉」配置页打开 `vision.videoEnabled` 后，收到的视频会保存到独立 `videoDir`，文件名通过内容哈希生成并写入事件的 `videoFile` / `videoFiles` 字段。扩展使用 ASR 配置中的 `asr.ffmpegPath`（同一套 PATH 与仓库 `ffmpeg-static` 回退）按 `videoFrameIntervalSec` 抽帧，最多取 `videoMaxFrames` 帧并拼成一张 PNG；主模型支持图片时直接收到该图片附件，否则尝试已配置的辅助视觉模型。视频只接受 QQ 提供的 `http(s)` 地址，超过 `videoMaxBytes` 或处理失败时保持普通视频占位，不把来源地址或原文送进事件。
 
 ### 让 bot 收藏的表情在 QQ 里可见（同步到 QQ 收藏表情）
 默认 bot 收藏表情包只是把图片**下载到本机目录**发图用，并不会写进 QQ 自己的「收藏表情」。若想让你在 SnowLuma 拉起的 QQ 客户端里也能看到这些表情，开启设置 **「同步到 QQ 收藏表情」**（`worlds.qqbot.sticker.addToQQFavorites`）：

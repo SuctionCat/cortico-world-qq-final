@@ -64,6 +64,8 @@ export interface QQWorldConfig {
   forwardByMessageId: boolean;
   /** 本地表情包图片目录（相对扩展或绝对路径），供发送 `[表情包:文件名]` 标记使用。 */
   emojiDir: string;
+  /** 本地图片库目录（相对扩展或绝对路径），与 emojiDir 分开，供发送 `[图片:文件名]` 标记使用。 */
+  imageDir: string;
   /** 是否把图片作为附件交给模型（需要模型支持图像）。 */
   deliverImageAttachments: boolean;
   /** 发送时按句拆分多条（fat-fish SPLIT_REPLY_BY_SENTENCE）。 */
@@ -81,6 +83,16 @@ export interface QQWorldConfig {
     maxConcurrent: number;
     maxBytes: number;
     timeoutMs: number;
+    /** 是否自动下载并理解收到的视频。 */
+    videoEnabled: boolean;
+    /** 视频文件目录（相对扩展或绝对路径）。 */
+    videoDir: string;
+    /** 抽帧间隔（秒）。 */
+    videoFrameIntervalSec: number;
+    /** 每个视频最多抽取的帧数，拼成一张 PNG。 */
+    videoMaxFrames: number;
+    /** 单个视频下载上限（字节）。 */
+    videoMaxBytes: number;
   };
   /** 表情包自动收藏：下载 + 情感/用处标注 + 内容去重。 */
   sticker: {
@@ -273,6 +285,7 @@ export const QQ_DEFAULTS: QQWorldConfig = {
   forwardExpandLimit: 20,
   forwardByMessageId: false,
   emojiDir: 'emoji',
+  imageDir: 'images',
   deliverImageAttachments: true,
   splitReplyBySentence: true,
   sentencesPerMessage: 1,
@@ -287,6 +300,11 @@ export const QQ_DEFAULTS: QQWorldConfig = {
     maxConcurrent: 3,
     maxBytes: 8_000_000,
     timeoutMs: 30000,
+    videoEnabled: false,
+    videoDir: 'videos',
+    videoFrameIntervalSec: 1,
+    videoMaxFrames: 12,
+    videoMaxBytes: 64 * 1024 * 1024,
   },
   sticker: {
     enabled: true,
@@ -443,6 +461,7 @@ export const QQ_CONFIG_GROUP: ConfigGroup = {
       'worlds.qqbot.privates': { type: 'string', title: '监听私聊', 'x-hot': true, description: '监听的私聊对方 QQ 号，用空格或逗号分隔。改完即时生效，不用重启。' },
       'worlds.qqbot.deliverImageAttachments': { type: 'boolean', title: '图片作为模型附件', 'x-hot': true, description: '开启时把收到的图片直接作为附件喂给主模型（主模型需支持看图）。这是默认的看图路径；「辅助视觉」是另一条用独立 VLM 描述图片的路，两条同时开会重复花钱，主模型能看图时就留着这个、关掉辅助视觉。' },
       'worlds.qqbot.emojiDir': { type: 'string', title: '表情包目录', 'x-hot': false, description: '本地表情包图片目录（相对扩展或绝对路径），供发送 [表情包:文件名] 标记。' },
+      'worlds.qqbot.imageDir': { type: 'string', title: '图片库目录', 'x-hot': false, description: '本地图片库目录（相对扩展或绝对路径），与表情包目录分开，供发送 [图片:文件名] 标记。' },
       'worlds.qqbot.splitReplyBySentence': { type: 'boolean', title: '按句拆分发送', 'x-hot': true, description: '开启后回复按句标拆成多条消息（对齐 fat-fish）。' },
       'worlds.qqbot.forwardByMessageId': { type: 'boolean', title: '允许按消息 id 合并转发', 'x-hot': false, description: '开启后可使用 qq_forward_by_id 工具：把本 bot 已接收或已发出的多条消息，用 send_forward_msg 合成「一张合并转发卡片」发出（卡片由本 bot 发出，node 身份只能是 bot 自己；卡片内每条消息用文本标注原始发送者昵称+QQ号并保留原文内容，不伪造任何身份）。需要协议端支持 send_forward_msg 与 get_msg（NapCat/Lagrange/SnowLuma 等 OneBot v11 实现大多支持）。只能转发本 bot 见过的消息（message id 必须在本地记录内），无法转发从未见过的消息。' },
       'worlds.qqbot.sentencesPerMessage': { type: 'integer', title: '每条句数', minimum: 1, maximum: 10, 'x-hot': true },
@@ -451,6 +470,11 @@ export const QQ_CONFIG_GROUP: ConfigGroup = {
             'worlds.qqbot.vision.endpoint': { type: 'string', title: '辅助视觉·模型地址', 'x-hot': false, description: 'VLM 的 OpenAI 兼容地址（如 https://api.deepseek.com/v1）。开启辅助视觉后必填。' },
       'worlds.qqbot.vision.apiKeySecret': { type: 'string', title: '辅助视觉·密钥名', 'x-hot': false, description: '密钥在密钥库（部署 .env）里的名字，如 DEEPSEEK_API_KEY；值由框架 secret() 读取，不写在本插件里。开启辅助视觉后必填。' },
 'worlds.qqbot.vision.model': { type: 'string', title: 'VLM 模型', 'x-hot': false, description: '描述图片用的视觉模型名。开启辅助视觉后必填。' },
+      'worlds.qqbot.vision.videoEnabled': { type: 'boolean', title: '视频理解', 'x-hot': false, description: '开启后自动下载收到的视频，使用 ASR 配置里的 ffmpeg 抽帧拼图；主模型支持图片时直接附图，否则尝试辅助视觉模型。' },
+      'worlds.qqbot.vision.videoDir': { type: 'string', title: '视频文件目录', 'x-hot': false, description: '收到的视频保存目录（相对扩展或绝对路径），默认 videos；只保存内容哈希文件名，不保存来源地址。' },
+      'worlds.qqbot.vision.videoFrameIntervalSec': { type: 'number', title: '视频抽帧间隔(秒)', minimum: 0.1, maximum: 3600, 'x-hot': false, description: '视频理解时每隔多少秒取一帧，默认 1 秒一帧。' },
+      'worlds.qqbot.vision.videoMaxFrames': { type: 'integer', title: '视频最多抽帧数', minimum: 1, maximum: 36, 'x-hot': false, description: '抽取的帧会拼成一张图发给主模型或辅助视觉，默认最多 12 帧。' },
+      'worlds.qqbot.vision.videoMaxBytes': { type: 'integer', title: '视频大小上限(字节)', minimum: 1048576, maximum: 67108864, 'x-hot': false, description: '单个视频下载上限，默认 64 MiB；超过上限会静默跳过视觉处理。' },
       'worlds.qqbot.sticker.enabled': { type: 'boolean', title: '自动收藏表情包', 'x-hot': false, description: '开启后自动下载消息里的表情包并标注情感/用处、内容去重。' },
       'worlds.qqbot.sticker.captureMode': {
         type: 'string',
@@ -632,6 +656,7 @@ export function normalizeConfig(raw: QQConfigSection): QQWorldConfig {
   if (typeof c.sendIntervalMs !== 'number') c.sendIntervalMs = QQ_DEFAULTS.sendIntervalMs;
   if (typeof c.deliverImageAttachments !== 'boolean') c.deliverImageAttachments = QQ_DEFAULTS.deliverImageAttachments;
   if (typeof c.emojiDir !== 'string' || !c.emojiDir) c.emojiDir = QQ_DEFAULTS.emojiDir;
+  if (typeof c.imageDir !== 'string' || !c.imageDir) c.imageDir = QQ_DEFAULTS.imageDir;
   if (typeof c.timezone !== 'string' || !c.timezone) c.timezone = QQ_DEFAULTS.timezone;
   if (typeof c.mode !== 'string') c.mode = 'reverse';
   if (typeof c.token !== 'string') c.token = '';
@@ -642,6 +667,19 @@ export function normalizeConfig(raw: QQConfigSection): QQWorldConfig {
   // vision 子对象原地合并，保持引用身份（x-hot 生效）
   c.vision = c.vision ?? {};
   Object.assign(c.vision, { ...QQ_DEFAULTS.vision, ...(c.vision as object) });
+  const vi = c.vision as Record<string, unknown>;
+  if (typeof vi.enabled !== 'boolean') vi.enabled = false;
+  if (typeof vi.endpoint !== 'string') vi.endpoint = '';
+  if (typeof vi.apiKeySecret !== 'string') vi.apiKeySecret = '';
+  if (typeof vi.model !== 'string') vi.model = '';
+  if (typeof vi.maxConcurrent !== 'number' || vi.maxConcurrent < 1) vi.maxConcurrent = QQ_DEFAULTS.vision.maxConcurrent;
+  if (typeof vi.maxBytes !== 'number' || vi.maxBytes < 1) vi.maxBytes = QQ_DEFAULTS.vision.maxBytes;
+  if (typeof vi.timeoutMs !== 'number' || vi.timeoutMs < 1000) vi.timeoutMs = QQ_DEFAULTS.vision.timeoutMs;
+  if (typeof vi.videoEnabled !== 'boolean') vi.videoEnabled = false;
+  if (typeof vi.videoDir !== 'string' || !vi.videoDir) vi.videoDir = QQ_DEFAULTS.vision.videoDir;
+  if (typeof vi.videoFrameIntervalSec !== 'number' || vi.videoFrameIntervalSec < 0.1) vi.videoFrameIntervalSec = QQ_DEFAULTS.vision.videoFrameIntervalSec;
+  if (typeof vi.videoMaxFrames !== 'number' || vi.videoMaxFrames < 1) vi.videoMaxFrames = QQ_DEFAULTS.vision.videoMaxFrames;
+  if (typeof vi.videoMaxBytes !== 'number' || vi.videoMaxBytes < 1) vi.videoMaxBytes = QQ_DEFAULTS.vision.videoMaxBytes;
   // sticker 子对象原地合并
   c.sticker = c.sticker ?? {};
   Object.assign(c.sticker, { ...QQ_DEFAULTS.sticker, ...(c.sticker as object) });

@@ -65,6 +65,13 @@ function resolveEmojiFile(emojiDir: string, fname: string): string | null {
 // 仅供测试断言路径收敛用（命名空间导出不进入运行时契约）。
 export const __resolveEmojiFileForTest = resolveEmojiFile;
 
+/** 图片库使用同一套目录边界检查，但目录与 emojiDir 永远分开。 */
+function resolveImageFile(imageDir: string, fname: string): string | null {
+  return resolveEmojiFile(imageDir, fname);
+}
+
+export const __resolveImageFileForTest = resolveImageFile;
+
 /** 把 OneBot 消息段数组渲染为对模型友好的纯文本（含引用/表情/@ 标注）。 */
 export function renderIncoming(
   segments: OneBotSegment[] | string | undefined,
@@ -154,13 +161,14 @@ export function renderSegmentsPlain(segments: OneBotSegment[] | string | undefin
 /**
  * 把待发送文本构建为 OneBot 发送段（对齐 fat-fish parse_reply_segments）：
  *   - [表情包:文件名] → image 段（本地文件，位于 emojiDir 下；缺扩展名或写错常见扩展名时自动修正，仍找不到则丢弃）
+ *   - [图片:文件名] → image 段（本地文件，位于 imageDir 下；目录与 emojiDir 分开）
  *   - [表情N] / [表情N:名称] → face 段
  *   - [中文表情名]（命中映射，如 [旺柴]/[笑哭]）→ face 段
  *   - @名字 / @QQ号 → at 段
  *   - 其它 [..] → 普通文本（保留方括号原样）
- * emojiDir 为空时不解析表情包标记。
+ * emojiDir/imageDir 为空时不解析对应标记。
  */
-export function buildOutgoing(text: string, emojiDir = ''): OneBotSegment[] {
+export function buildOutgoing(text: string, emojiDir = '', imageDir = ''): OneBotSegment[] {
   const segments: OneBotSegment[] = [];
   const re = /\[([^\[\]]{1,40})\]|@([^\s@]{1,30})/g;
   let last = 0;
@@ -177,6 +185,13 @@ export function buildOutgoing(text: string, emojiDir = ''): OneBotSegment[] {
           if (p && existsSync(p)) segments.push({ type: 'image', data: { file: p } });
         }
         // 目录未配置 / 文件缺失 / 路径越界：丢弃该标记（不入群消息里的可读文本）
+      } else if (inner.startsWith('图片:')) {
+        const fname = inner.slice('图片:'.length).trim();
+        if (imageDir && fname) {
+          const p = resolveImageFile(imageDir, fname);
+          if (p && existsSync(p)) segments.push({ type: 'image', data: { file: p } });
+        }
+        // 图片库文件不存在或越界时静默丢弃该标记，不读取任意本机文件。
       } else if (/^表情\s*\d+(?:[:：][^\]]*)?$/.test(inner)) {
         const id = inner.match(/^表情\s*(\d+)/)![1];
         segments.push({ type: 'face', data: { id: Number(id) } });
