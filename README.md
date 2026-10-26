@@ -60,7 +60,10 @@ Cortico 的 **QQ（OneBot v11 / NapCat）** World 扩展。以 `fat-fish` 仓库
 | `vision.videoEnabled` | `false` | 视频理解开关；开启后把收到的视频保存到独立 `videoDir`，用 ASR 配置里的 ffmpeg 抽帧拼图 |
 | `vision.videoDir` | `videos` | 视频文件目录（相对扩展或绝对路径）；文件名由内容哈希生成，不保存来源 URL |
 | `vision.videoFrameIntervalSec` | `1` | 视频抽帧间隔，单位秒，默认一秒一帧 |
-| `vision.videoMaxFrames` | `12` | 每个视频最多抽帧数，抽帧后拼成一张 PNG 附件 |
+| `vision.videoMaxFrames` | `12` | 每个时间窗最多抽帧数，抽帧后拼成一张 PNG 附件 |
+| `vision.videoSegmentSec` | `8` | 视频时间窗长度；每个时间窗单独拼图并配声音转写 |
+| `vision.videoMaxSegments` | `12` | 最多处理的视频时间窗数量 |
+| `vision.videoAudioEnabled` | `true` | 是否把每个时间窗的音频送入当前 ASR 转写 |
 | `vision.videoMaxBytes` | `67108864` | 单个视频下载上限，默认 64 MiB |
 | `qzone.enabled` | `false` | 启用 QQ 空间动态（说说）功能（需重启生效） |
 | `qzone.tickSec` / `qzone.chancePerTick` | `900` / `0.15` | 后台自动冒泡间隔(秒)与每次触发概率 |
@@ -326,7 +329,7 @@ interface VoiceProvider {
 - `qq_sticker_tag`：修改某张已收藏表情包的标注——情感 `emotion` / 用处 `usage` / 短标签 `tag` / 显示名 `label`（只传想改的字段），改完立即持久化保存。自动标注不准（如情感是「未知」）或想按自己的习惯整理表情库时用它；先用 `qq_sticker_stats` 拿到真实文件名再调用。
 - `qq_view_image`：主动重新看一张刚收到的 QQ 图片（当被动视觉没拿到描述、或你想细看时）。不传 `url` 则看最近收到的一张，也可传 `url` 指定任意图片链接，返回图片的文字描述。
 - 引用图片：引用 QQ 消息时，引用里的图片会随当前事件作为视觉附件传递；主模型不支持图片时尝试辅助视觉。图片 URL 只接受 `http(s)`，不会把来源地址写进事件。
-- 视频理解：在「视觉」配置页打开 `vision.videoEnabled` 后，收到的视频会保存到独立 `videoDir`，文件名通过内容哈希生成并写入事件的 `videoFile` / `videoFiles` 字段。扩展使用 ASR 配置中的 `asr.ffmpegPath`（同一套 PATH 与仓库 `ffmpeg-static` 回退）按 `videoFrameIntervalSec` 抽帧，最多取 `videoMaxFrames` 帧并拼成一张 PNG；主模型支持图片时直接收到该图片附件，否则尝试已配置的辅助视觉模型。视频只接受 QQ 提供的 `http(s)` 地址，超过 `videoMaxBytes` 或处理失败时保持普通视频占位，不把来源地址或原文送进事件。
+- 视频理解：在「视觉」配置页打开 `vision.videoEnabled` 后，收到的视频会保存到独立 `videoDir`，文件名通过内容哈希生成并写入事件的 `videoFile` / `videoFiles` 字段。扩展使用 ASR 配置中的 `asr.ffmpegPath`（同一套 PATH 与仓库 `ffmpeg-static` 回退），按 `videoSegmentSec` 切成时间窗，在每个时间窗内按 `videoFrameIntervalSec` 抽帧拼图，并按同一时间范围抽取声音交给 ASR；主模型支持图片时一次收到多张带时间范围的拼图附件，否则逐窗调用辅助视觉后汇总成时间轴。视频只接受 QQ 提供的 `http(s)` 地址，超过 `videoMaxBytes`、时间窗上限或处理失败时保持普通视频占位，不把来源地址或原文送进事件。
 
 ### 让 bot 收藏的表情在 QQ 里可见（同步到 QQ 收藏表情）
 默认 bot 收藏表情包只是把图片**下载到本机目录**发图用，并不会写进 QQ 自己的「收藏表情」。若想让你在 SnowLuma 拉起的 QQ 客户端里也能看到这些表情，开启设置 **「同步到 QQ 收藏表情」**（`worlds.qqbot.sticker.addToQQFavorites`）：

@@ -28,3 +28,26 @@ test('视频只接受 http(s)，按哈希文件名保存到独立目录', async 
     globalThis.fetch = oldFetch;
   }
 });
+
+test('视频时间轴在 ffmpeg 不可用时保留文件并静默返回空片段', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'qq-video-timeline-'));
+  const oldFetch = globalThis.fetch;
+  const bytes = Uint8Array.from([0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70, 0x6d, 0x70, 0x34, 0x32]);
+  globalThis.fetch = (async () => new Response(bytes, { status: 200 })) as typeof fetch;
+  try {
+    const store = new VideoStore(join(root, 'videos'), ['definitely-missing-ffmpeg'], logger(), 1024, 2000);
+    const timeline = await store.saveAndExtractTimeline('https://qq.example/video.mp4', {
+      intervalSec: 1,
+      segmentSec: 8,
+      maxFrames: 8,
+      maxSegments: 3,
+      audio: true,
+    });
+    assert.ok(timeline);
+    assert.equal(timeline.durationSec, null);
+    assert.deepEqual(timeline.segments, []);
+    assert.equal(existsSync(join(root, 'videos', timeline.file)), true);
+  } finally {
+    globalThis.fetch = oldFetch;
+  }
+});

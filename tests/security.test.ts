@@ -295,3 +295,16 @@ test('qq_admin 的授权辅助逻辑必须与合并工具一起存在', async ()
   assert.ok(body.includes('activeAdminConversation'), '管理员鉴权不能把 ToolCallContext.role 当作 QQ 会话地址');
   assert.ok(src.includes("auth.callerRole === 'self' && !this.config.admin.allowSelfKick"), '踢人自主权限必须单独保护');
 });
+
+test('视频理解按时间窗对齐画面与声音，并只进入外部事件', async () => {
+  const fs = await import('node:fs');
+  const world = fs.readFileSync(new URL('../src/world.ts', import.meta.url), 'utf8');
+  const video = fs.readFileSync(new URL('../src/video.ts', import.meta.url), 'utf8');
+  const voice = fs.readFileSync(new URL('../src/voice.ts', import.meta.url), 'utf8');
+  assert.ok(video.includes('saveAndExtractTimeline'), '必须按时间窗处理视频');
+  assert.ok(video.includes('extractSegmentAudio'), '每个时间窗必须抽取声音');
+  assert.ok(voice.includes('transcribeAudioBytes'), '必须支持从 WAV 字节转写视频声音');
+  assert.ok(world.includes('videoSegmentSec'), '必须读取视频时间窗配置');
+  assert.ok(world.includes('videoTime(segment.startSec)'), '画面和转写必须带同一时间范围');
+  assert.ok(world.includes("origin: 'external'"), '视频资料只能进入 external 事件');
+});

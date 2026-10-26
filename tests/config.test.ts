@@ -50,4 +50,7 @@ test('normalizeConfig vision 缺省 model 存在', () => {
   assert.equal(out.vision.videoDir, 'videos');
   assert.equal(out.vision.videoFrameIntervalSec, 1);
   assert.equal(out.vision.videoMaxFrames, 12);
+  assert.equal(out.vision.videoSegmentSec, 8);
+  assert.equal(out.vision.videoMaxSegments, 12);
+  assert.equal(out.vision.videoAudioEnabled, true);
 });

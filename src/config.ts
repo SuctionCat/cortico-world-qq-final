@@ -89,8 +89,14 @@ export interface QQWorldConfig {
     videoDir: string;
     /** 抽帧间隔（秒）。 */
     videoFrameIntervalSec: number;
-    /** 每个视频最多抽取的帧数，拼成一张 PNG。 */
+    /** 每个时间窗最多抽取的帧数，拼成一张 PNG。 */
     videoMaxFrames: number;
+    /** 视频时间窗长度（秒）。 */
+    videoSegmentSec: number;
+    /** 最多处理多少个时间窗。 */
+    videoMaxSegments: number;
+    /** 是否把每个时间窗的音频送入 ASR 转写。 */
+    videoAudioEnabled: boolean;
     /** 单个视频下载上限（字节）。 */
     videoMaxBytes: number;
   };
@@ -304,6 +310,9 @@ export const QQ_DEFAULTS: QQWorldConfig = {
     videoDir: 'videos',
     videoFrameIntervalSec: 1,
     videoMaxFrames: 12,
+    videoSegmentSec: 8,
+    videoMaxSegments: 12,
+    videoAudioEnabled: true,
     videoMaxBytes: 64 * 1024 * 1024,
   },
   sticker: {
@@ -473,7 +482,10 @@ export const QQ_CONFIG_GROUP: ConfigGroup = {
       'worlds.qqbot.vision.videoEnabled': { type: 'boolean', title: '视频理解', 'x-hot': false, description: '开启后自动下载收到的视频，使用 ASR 配置里的 ffmpeg 抽帧拼图；主模型支持图片时直接附图，否则尝试辅助视觉模型。' },
       'worlds.qqbot.vision.videoDir': { type: 'string', title: '视频文件目录', 'x-hot': false, description: '收到的视频保存目录（相对扩展或绝对路径），默认 videos；只保存内容哈希文件名，不保存来源地址。' },
       'worlds.qqbot.vision.videoFrameIntervalSec': { type: 'number', title: '视频抽帧间隔(秒)', minimum: 0.1, maximum: 3600, 'x-hot': false, description: '视频理解时每隔多少秒取一帧，默认 1 秒一帧。' },
-      'worlds.qqbot.vision.videoMaxFrames': { type: 'integer', title: '视频最多抽帧数', minimum: 1, maximum: 36, 'x-hot': false, description: '抽取的帧会拼成一张图发给主模型或辅助视觉，默认最多 12 帧。' },
+      'worlds.qqbot.vision.videoMaxFrames': { type: 'integer', title: '每窗最多抽帧数', minimum: 1, maximum: 36, 'x-hot': false, description: '每个时间窗抽取的帧会拼成一张图发给主模型或辅助视觉，默认最多 12 帧。' },
+      'worlds.qqbot.vision.videoSegmentSec': { type: 'number', title: '视频时间窗(秒)', minimum: 1, maximum: 60, 'x-hot': false, description: '按时间窗分批理解视频，默认每 8 秒拼一张图并配一段声音转写。' },
+      'worlds.qqbot.vision.videoMaxSegments': { type: 'integer', title: '最多视频时间窗', minimum: 1, maximum: 24, 'x-hot': false, description: '从头到尾最多处理多少个时间窗，默认 12 个。' },
+      'worlds.qqbot.vision.videoAudioEnabled': { type: 'boolean', title: '视频声音转写', 'x-hot': false, description: '把每个视频时间窗的声音送入当前 ASR 配置，按时间范围作为文字交给主模型。' },
       'worlds.qqbot.vision.videoMaxBytes': { type: 'integer', title: '视频大小上限(字节)', minimum: 1048576, maximum: 67108864, 'x-hot': false, description: '单个视频下载上限，默认 64 MiB；超过上限会静默跳过视觉处理。' },
       'worlds.qqbot.sticker.enabled': { type: 'boolean', title: '自动收藏表情包', 'x-hot': false, description: '开启后自动下载消息里的表情包并标注情感/用处、内容去重。' },
       'worlds.qqbot.sticker.captureMode': {
@@ -679,6 +691,9 @@ export function normalizeConfig(raw: QQConfigSection): QQWorldConfig {
   if (typeof vi.videoDir !== 'string' || !vi.videoDir) vi.videoDir = QQ_DEFAULTS.vision.videoDir;
   if (typeof vi.videoFrameIntervalSec !== 'number' || vi.videoFrameIntervalSec < 0.1) vi.videoFrameIntervalSec = QQ_DEFAULTS.vision.videoFrameIntervalSec;
   if (typeof vi.videoMaxFrames !== 'number' || vi.videoMaxFrames < 1) vi.videoMaxFrames = QQ_DEFAULTS.vision.videoMaxFrames;
+  if (typeof vi.videoSegmentSec !== 'number' || vi.videoSegmentSec < 1) vi.videoSegmentSec = QQ_DEFAULTS.vision.videoSegmentSec;
+  if (typeof vi.videoMaxSegments !== 'number' || vi.videoMaxSegments < 1) vi.videoMaxSegments = QQ_DEFAULTS.vision.videoMaxSegments;
+  if (typeof vi.videoAudioEnabled !== 'boolean') vi.videoAudioEnabled = QQ_DEFAULTS.vision.videoAudioEnabled;
   if (typeof vi.videoMaxBytes !== 'number' || vi.videoMaxBytes < 1) vi.videoMaxBytes = QQ_DEFAULTS.vision.videoMaxBytes;
   // sticker 子对象原地合并
   c.sticker = c.sticker ?? {};

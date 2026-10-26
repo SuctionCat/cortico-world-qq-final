@@ -7,7 +7,7 @@ import { shortTime } from 'cortico/core/util.ts';
 import { OneBotDriver } from './driver.ts';
 import { QZonePoster, type QZoneConfig } from './qzone.ts';
 import { QQ_CONFIG_GROUP, QQ_VOICE_GROUP, QQ_ASR_GROUP, QQ_DEFAULTS, normalizeConfig, toIds, type QQConfigSection, type QQWorldConfig } from './config.ts';
-import { transcribeRecord, synthesizeVoice, judgeVoiceWish, checkVoiceDeps, voiceReady, splitIntoSentences, type RuntimeVoiceCfg } from './voice.ts';
+import { transcribeRecord, transcribeAudioBytes, synthesizeVoice, judgeVoiceWish, checkVoiceDeps, voiceReady, splitIntoSentences, type RuntimeVoiceCfg } from './voice.ts';
 import { isAbsolute, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildOutgoing, eventClock, eventTs, renderIncoming, renderSegmentsPlain, splitReplyIntoMessages } from './normalize.ts';
@@ -21,6 +21,14 @@ const EXT_ROOT = fileURLToPath(new URL('..', import.meta.url));
 /** 去掉语音转写前缀（"[语音转写] "），用于触发词匹配 */
 function stripTranscribePrefix(t: string): string {
   return (t || '').replace(/^\[语音转写\]\s*/, '').trim();
+}
+
+function videoTime(sec: number): string {
+  const total = Math.max(0, Math.floor(sec));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
 }
 import { type Conv, type OneBotMessage, type OneBotSegment, type QQIdentity, type QQSenderBrief } from './types.ts';
 import { Vision } from './vision.ts';
@@ -1325,32 +1333,48 @@ export class QQWorld implements World {
       } else if (s.type === 'video' && (s.data as { url?: string }).url) {
         if (!this.config.vision.videoEnabled || !this.videos) continue;
         const url = (s.data as { url: string }).url;
-        const result = await this.videos.saveAndExtract(
-          url,
-          this.config.vision.videoFrameIntervalSec,
-          this.config.vision.videoMaxFrames,
-        );
+        const result = await this.videos.saveAndExtractTimeline(url, {
+          intervalSec: this.config.vision.videoFrameIntervalSec,
+          segmentSec: this.config.vision.videoSegmentSec,
+          maxFrames: this.config.vision.videoMaxFrames,
+          maxSegments: this.config.vision.videoMaxSegments,
+          audio: this.config.vision.videoAudioEnabled && this.config.asr.mode !== 'off',
+        });
         if (!result) continue;
         videoFiles.push(result.file);
         if (text) text += '\n';
         text += `[视频文件:${result.file}]`;
-        if (!result.frameBytes) continue;
-        if (host.modelFacts.accepts('image/png')) {
-          blobs.push({
-            bytes: result.frameBytes,
-            mime: 'image/png',
-            name: 'qq-video-frames',
-            fallbackText: `[视频画面:${result.file}]`,
-          });
-        } else if (this.config.vision.enabled && !this.host?.isPaused?.()) {
-          try {
-            const desc = await this.vision.describeImageBytes(result.frameBytes, 'image/png');
-            const clean = desc ? this.cleanVideoDescription(desc) : '';
-            if (clean) text += `\n[视频画面描述] ${clean}`;
-          } catch (e) {
-            this.log.warn('视频辅助视觉失败', { err: String(e), file: result.file });
+        const mainCanSee = host.modelFacts.accepts('image/png');
+        const timelineLines: string[] = [];
+        const runtimeVoice = result.segments.some((seg) => seg.audioBytes) ? this.voiceRuntime() : null;
+        for (const segment of result.segments) {
+          const range = `${videoTime(segment.startSec)}-${videoTime(segment.endSec)}`;
+          let transcript = '';
+          if (runtimeVoice && segment.audioBytes) {
+            transcript = (await transcribeAudioBytes(segment.audioBytes, runtimeVoice)) || '';
+          }
+          let visual = '';
+          if (segment.frameBytes && mainCanSee) {
+            blobs.push({
+              bytes: segment.frameBytes,
+              mime: 'image/png',
+              name: `qq-video-${segment.index}`,
+              fallbackText: `[视频画面 ${range}]`,
+            });
+            visual = '画面已作为附件提供';
+          } else if (segment.frameBytes && this.config.vision.enabled && !this.host?.isPaused?.()) {
+            try {
+              const desc = await this.vision.describeImageBytes(segment.frameBytes, 'image/png');
+              visual = desc ? `画面描述：${this.cleanVideoDescription(desc)}` : '';
+            } catch (e) {
+              this.log.warn('视频辅助视觉失败', { err: String(e), file: result.file, segment: segment.index });
+            }
+          }
+          if (transcript || visual) {
+            timelineLines.push(`[视频片段 ${result.file} ${range}]${transcript ? ` 声音转写：${this.cleanVideoDescription(transcript)}` : ''}${visual ? ` ${visual}` : ''}`);
           }
         }
+        if (timelineLines.length) text += `\n${timelineLines.join('\n')}`;
       } else if (s.type === 'sticker' && (s.data as { url?: string }).url) {
         // 真实表情包段（type=sticker）必须在顶层处理，不能塞进 image 分支里。
         if (this.config.sticker.enabled && this.stickers) {

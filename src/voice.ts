@@ -450,6 +450,29 @@ async function transcribeViaService(ctx: VoiceTranscribeCtx): Promise<string | n
   }
 }
 
+/** 对视频时间窗的 WAV 字节调用同一套 ASR 服务；返回值只保留转写文本，不保存音频来源。 */
+export async function transcribeAudioBytes(bytes: Uint8Array, cfg: RuntimeVoiceCfg): Promise<string | null> {
+  const base = (cfg.transcribeUrl || '').trim();
+  if (!base || !bytes.length) return null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), cfg.transcribeTimeout);
+  try {
+    const res = await fetch(`${base.replace(/\/+$/, '')}/asr`, {
+      method: 'POST',
+      headers: { 'content-type': 'audio/wav' },
+      body: Buffer.from(bytes),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return null;
+    const j = await res.json() as { text?: string };
+    return typeof j.text === 'string' ? j.text.trim() || null : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /* ------------------------------------------------------------------ *
  * 对外收/发入口：按 cfg.provider 查表分发
  * ------------------------------------------------------------------ */
