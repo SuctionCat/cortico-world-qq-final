@@ -1900,7 +1900,7 @@ export class QQWorld implements World {
       }
     }
 
-    const outgoing = buildOutgoing(text, this.emojiDirAbs, this.imageDirAbs);
+    const outgoing = buildOutgoing(text, this.emojiDirAbs, this.imageDirAbs, this.config.imageTransport);
     if (atQQs && atQQs.length) {
       for (const qq of atQQs) outgoing.unshift({ type: 'at', data: { qq } });
     }

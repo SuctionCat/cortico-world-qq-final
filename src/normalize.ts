@@ -1,5 +1,5 @@
 import { nowIso, shortTime } from 'cortico/core/util.ts';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { faceName, faceIdByName } from './qface-map.ts';
 import type { OneBotSegment } from './types.ts';
@@ -168,7 +168,7 @@ export function renderSegmentsPlain(segments: OneBotSegment[] | string | undefin
  *   - 其它 [..] → 普通文本（保留方括号原样）
  * emojiDir/imageDir 为空时不解析对应标记。
  */
-export function buildOutgoing(text: string, emojiDir = '', imageDir = ''): OneBotSegment[] {
+export function buildOutgoing(text: string, emojiDir = '', imageDir = '', imageTransport: 'auto' | 'path' | 'base64' = 'auto'): OneBotSegment[] {
   const segments: OneBotSegment[] = [];
   const re = /\[([^\[\]]{1,40})\]|@([^\s@]{1,30})/g;
   let last = 0;
@@ -182,14 +182,14 @@ export function buildOutgoing(text: string, emojiDir = '', imageDir = ''): OneBo
         const fname = inner.slice('表情包:'.length).trim();
         if (emojiDir && fname) {
           const p = resolveEmojiFile(emojiDir, fname);
-          if (p && existsSync(p)) segments.push({ type: 'image', data: { file: p } });
+          if (p && existsSync(p)) { const file = imageTransport === 'path' ? p : 'base64://' + readFileSync(p).toString('base64'); segments.push({ type: 'image', data: { file } }); }
         }
         // 目录未配置 / 文件缺失 / 路径越界：丢弃该标记（不入群消息里的可读文本）
       } else if (inner.startsWith('图片:')) {
         const fname = inner.slice('图片:'.length).trim();
         if (imageDir && fname) {
           const p = resolveImageFile(imageDir, fname);
-          if (p && existsSync(p)) segments.push({ type: 'image', data: { file: p } });
+          if (p && existsSync(p)) { const file = imageTransport === 'path' ? p : 'base64://' + readFileSync(p).toString('base64'); segments.push({ type: 'image', data: { file } }); }
         }
         // 图片库文件不存在或越界时静默丢弃该标记，不读取任意本机文件。
       } else if (/^表情\s*\d+(?:[:：][^\]]*)?$/.test(inner)) {
